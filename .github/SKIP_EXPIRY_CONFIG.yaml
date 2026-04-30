@@ -4,7 +4,7 @@ maintainers:
   - yxieca
 
 expiry:
-  default_days: 2
+  default_days: 0
 
 report:
   warning_days: [30, 15, 7, 3, 1]
