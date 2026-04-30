@@ -1,0 +1,95 @@
+name: Guard Conditional Mark Issues
+
+on:
+  issues:
+    types:
+      - closed
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  ALLOWED_CONDITIONAL_MARK_BRANCHES: |
+    main
+    202511
+    202505
+    202412
+
+jobs:
+  reopen-conditional-mark-issue:
+    if: github.event.repository.default_branch == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch allowed branches
+        run: |
+          while IFS= read -r branch; do
+            if [ -n "$branch" ]; then
+              if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+                git fetch --no-tags origin "$branch:$branch"
+              else
+                echo "Skipping missing branch: $branch"
+              fi
+            fi
+          done <<'EOF'
+          ${{ env.ALLOWED_CONDITIONAL_MARK_BRANCHES }}
+          EOF
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install parser dependency
+        run: python -m pip install --disable-pip-version-check PyYAML
+
+      - name: Check closed issue against conditional mark files
+        id: check
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          CONDITIONAL_MARK_BRANCHES: ${{ env.ALLOWED_CONDITIONAL_MARK_BRANCHES }}
+        run: |
+          python .github/scripts/conditional_mark_issue_guard.py \
+            --issue-number "$ISSUE_NUMBER" \
+            --search-root . \
+            --branches "$CONDITIONAL_MARK_BRANCHES" \
+            --output-json > result.json
+          cat result.json
+          blocked=$(python - <<'PY'
+          import json
+          with open('result.json', encoding='utf-8') as handle:
+              print(str(json.load(handle)['blocked']).lower())
+          PY
+          )
+          echo "blocked=$blocked" >> "$GITHUB_OUTPUT"
+
+      - name: Comment and reopen blocked issue
+        if: steps.check.outputs.blocked == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_number = context.payload.issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const body = 'Closing an issue specified in the conditional mark file is not allowed unless the entry is removed.';
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });
+
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number,
+              state: 'open',
+            });
