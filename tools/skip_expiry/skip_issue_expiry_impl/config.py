@@ -44,8 +44,8 @@ def load_skip_expiry_config(config_path: Path) -> SkipExpiryConfig:
     except (TypeError, ValueError) as exc:
         raise ValueError("expiry.default_days must be an integer") from exc
 
-    if expiry_days <= 0:
-        raise ValueError("expiry.default_days must be greater than zero")
+    if expiry_days < 0:
+        raise ValueError("expiry.default_days must be zero or greater")
 
     logger.info(
         "Loaded skip-expiry config: %d maintainers, expiry.default_days=%d",
