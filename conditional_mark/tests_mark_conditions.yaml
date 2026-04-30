@@ -56,7 +56,7 @@ acl/custom_acl_table/test_custom_acl_table.py:
   xfail:
     reason: "xfail for scale topology, PTF is not stable at the scale testbed"
     conditions:
-      - "https://github.com/opcoder0/issue-test/issues/1 and 't0-isolated-d256u256s2' in topo_name"
+      - "https://github.com/opcoder023/issue-test/issues/1 and 't0-isolated-d256u256s2' in topo_name"
 
 #######################################
 #####            acl              #####
@@ -73,7 +73,7 @@ acl/test_acl.py:
   skip:
     reason: "Skip acl for isolated-v6 topology"
     conditions:
-      - "'isolated-v6' in topo_name and https://github.com/opcoder0/issue-test/issues/2"
+      - "'isolated-v6' in topo_name and https://github.com/opcoder023/issue-test/issues/2"
       - "asic_type in ['broadcom']"
   xfail:
     reason: "Test case has issue on the t0-isolated-d256u256s2 topo."
@@ -85,7 +85,7 @@ acl/test_acl.py::.*_forwarded\[ipv6-.*uplink->downlink:
   xfail:
     reason: "IPv6 forwarded tests with uplink->downlink direction fail on v6 topology"
     conditions:
-      - "https://github.com/opcoder0/issue-test/issues/3 and '-v6-' in topo_name and asic_type in ['mellanox', 'nvidia']"
+      - "https://github.com/opcoder023/issue-test/issues/3 and '-v6-' in topo_name and asic_type in ['mellanox', 'nvidia']"
 
 acl/test_acl.py::TestMultiBindingAcl:
   skip:
@@ -165,13 +165,13 @@ arp/test_arp_dualtor.py::test_standby_unsolicited_neigh_learning[IPv4-active-sta
   skip:
     reason: "This testcase has low passing rate in KVM PR test, skip with issue to unblock PR test."
     conditions:
-      - "asic_type in ['vs'] and https://github.com/opcoder0/issue-test/issues/3"
+      - "asic_type in ['vs'] and https://github.com/opcoder023/issue-test/issues/3"
 
 arp/test_arp_extended.py::test_arp_garp_enabled:
   xfail:
     reason: "xfail for IPv6-only topologies, with issue it try to parse with IPv4 style"
     conditions:
-      - "https://github.com/opcoder0/issue-test/issues/4 and '-v6-' in topo_name"
+      - "https://github.com/opcoder023/issue-test/issues/4 and '-v6-' in topo_name"
 
 arp/test_arp_extended.py::test_proxy_arp[v4-:
   skip:
@@ -220,7 +220,7 @@ arp/test_stress_arp.py::test_ipv4_arp:
     conditions_logical_operator: or
     conditions:
       - "'-v6-' in topo_name"
-      - "https://github.com/opcoder0/issue-test/issues/5 and 't0-isolated-d256u256s2' in topo_name"
+      - "https://github.com/opcoder023/issue-test/issues/5 and 't0-isolated-d256u256s2' in topo_name"
 
 arp/test_unknown_mac.py:
   skip:
@@ -232,4 +232,4 @@ arp/test_unknown_mac.py::TestUnknownMac::test_unknown_mac:
   xfail:
     reason: "xfail for IPv6-only topologies, with issue failure to handle max number"
     conditions:
-      - "https://github.com/opcoder0/issue-test/issues/6 and '-v6-' in topo_name"
+      - "https://github.com/opcoder023/issue-test/issues/6 and '-v6-' in topo_name"
