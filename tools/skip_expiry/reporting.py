@@ -362,6 +362,10 @@ class ProjectV2Reporter:
         )
 
     def _update_date_field(self, item_id: str, field_name: str, value: str) -> None:
+      if not str(value or "").strip():
+        self._clear_field_value(item_id, field_name)
+        return
+
         field = self._field(field_name)
         if not field:
             logger.warning("Project field '%s' not found; skipping update", field_name)
