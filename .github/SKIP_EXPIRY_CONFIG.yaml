@@ -1,10 +1,8 @@
 maintainers:
-  - StormLiangMS
-  - wangxin
-  - yxieca
+  - opcoder0
 
 expiry:
-  default_days: 0
+  default_days: 1
 
 report:
   warning_days: [30, 15, 7, 3, 1]

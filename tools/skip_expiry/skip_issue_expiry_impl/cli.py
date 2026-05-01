@@ -14,7 +14,7 @@ from .expiry import IssueEvaluation, SkipExpiryManager
 from .github_api import GitHubApiClient
 from .models import IssueRef
 
-DEFAULT_TARGET_REPO = "sonic-net/sonic-mgmt"
+DEFAULT_TARGET_REPO = "opcoder023/issue-test"
 
 
 def _parse_args() -> argparse.Namespace:
