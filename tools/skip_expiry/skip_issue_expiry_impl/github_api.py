@@ -100,7 +100,10 @@ class GitHubApiClient:
         if response.status_code in (200, 204, 404):
             return
         if response.status_code >= 400:
-            logger.error("Failed to remove label %s from %s: %d %s", label, issue.html_url, response.status_code, response.text)
+            logger.error(
+                "Failed to remove label %s from %s: %d %s",
+                label, issue.html_url,
+                response.status_code, response.text)
             response.raise_for_status()
 
     def create_comment(self, issue: IssueRef, body: str) -> None:
