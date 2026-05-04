@@ -20,16 +20,6 @@ class ManagedState:
     at: Optional[datetime] = None
 
 
-@dataclass
-class IssueEvaluation:
-    issue_payload: Dict[str, object]
-    timeline: List[Dict[str, object]]
-    comments: List[Dict[str, object]]
-    created_at: Optional[datetime]
-    expiry_at: Optional[datetime]
-    expired_now: bool
-
-
 class SkipExpiryManager:
     """Handles issue expiry transition logic for skip/xfail tracked issues."""
 
@@ -45,32 +35,31 @@ class SkipExpiryManager:
         self.bot_login = bot_login
         self.no_op = no_op
 
-    def process_issue(self, issue_ref: IssueRef) -> Optional[IssueEvaluation]:
-        evaluation = self.evaluate_issue(issue_ref)
-        if evaluation is None:
-            return None
+    def process_issue(self, issue_ref: IssueRef) -> None:
+        issue = self.api_client.get_issue(issue_ref)
 
-        issue = evaluation.issue_payload
-        created_at = evaluation.created_at
-        expired_now = evaluation.expired_now
-        issue_state = str(issue.get("state") or "").lower()
-
-        if issue_state != "open":
-            created_text = created_at.isoformat() if created_at else "unknown"
+        if issue.get("state") != "open":
             if self.no_op:
+                created_at = self._parse_github_timestamp(issue.get("created_at"))
+                created_text = created_at.isoformat() if created_at else "unknown"
                 logger.info(
                     "NO-OP issue %s created=%s expired_now=n/a action=skip_closed",
                     issue_ref.html_url,
                     created_text,
                 )
-                return evaluation
+                return
 
             logger.info("Skipping closed issue %s", issue_ref.html_url)
-            return evaluation
+            return
 
-        timeline = evaluation.timeline
-        comments = evaluation.comments
-        managed_state = self._resolve_managed_state(timeline, comments)
+        timeline = self.api_client.get_issue_timeline(issue_ref)
+        created_at = self._resolve_created_at(timeline, issue.get("created_at"))
+        if not created_at:
+            logger.error("Unable to determine created_at for %s; skipping", issue_ref.html_url)
+            return
+
+        expired_now = self._is_expired(created_at)
+        managed_state = self._resolve_managed_state(timeline, self.api_client.get_issue_comments(issue_ref))
         labels = {label.get("name") for label in issue.get("labels", []) if isinstance(label, dict)}
         action = self._determine_action(expired_now, labels, managed_state)
 
@@ -78,16 +67,16 @@ class SkipExpiryManager:
             logger.info(
                 "NO-OP issue %s created=%s expired_now=%s action=%s",
                 issue_ref.html_url,
-                created_at.isoformat() if created_at else "unknown",
+                created_at.isoformat(),
                 expired_now,
                 action,
             )
-            return evaluation
+            return
 
         logger.info(
             "Issue %s created %s, expired_now=%s, managed_state=%s, action=%s",
             issue_ref.html_url,
-            created_at.isoformat() if created_at else "unknown",
+            created_at.isoformat(),
             expired_now,
             managed_state.value,
             action,
@@ -95,30 +84,9 @@ class SkipExpiryManager:
 
         if expired_now:
             self._handle_expired_transition(issue_ref, labels, managed_state)
-            return evaluation
+            return
 
         self._handle_active_transition(issue_ref, labels, managed_state)
-        return evaluation
-
-    def evaluate_issue(self, issue_ref: IssueRef) -> Optional[IssueEvaluation]:
-        issue = self.api_client.get_issue(issue_ref)
-        timeline = self.api_client.get_issue_timeline(issue_ref)
-        comments = self.api_client.get_issue_comments(issue_ref)
-        created_at = self._resolve_created_at(timeline, issue.get("created_at"))
-        expiry_at = created_at + timedelta(days=self.config.expiry_days) if created_at else None
-        expired_now = self._is_expired(created_at) if created_at else False
-
-        if not created_at:
-            logger.warning("Unable to determine created_at for %s; continuing without expiry timing", issue_ref.html_url)
-
-        return IssueEvaluation(
-            issue_payload=issue,
-            timeline=timeline,
-            comments=comments,
-            created_at=created_at,
-            expiry_at=expiry_at,
-            expired_now=expired_now,
-        )
 
     def _handle_expired_transition(self, issue_ref: IssueRef, labels: set, managed_state: ManagedState) -> None:
         if managed_state.value == "expired":

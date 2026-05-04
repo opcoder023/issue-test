@@ -1,7 +1,8 @@
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 import yaml
 
@@ -14,8 +15,8 @@ class SkipExpiryConfig:
 
     maintainers: List[str]
     expiry_days: int
-    warning_days: int
-    maintainer_map: Dict[str, str]
+    release_includes: List[str] = field(default_factory=list)
+    release_excludes: List[str] = field(default_factory=list)
 
 
 def load_skip_expiry_config(config_path: Path) -> SkipExpiryConfig:
@@ -49,42 +50,39 @@ def load_skip_expiry_config(config_path: Path) -> SkipExpiryConfig:
     if expiry_days <= 0:
         raise ValueError("expiry.default_days must be greater than zero")
 
-    report_config = content.get("report") or {}
-    warning_days_raw = report_config.get("warning_days", [30])
-    warning_days_values: List[int] = []
-    if isinstance(warning_days_raw, list):
-        for raw in warning_days_raw:
-            try:
-                value = int(raw)
-            except (TypeError, ValueError):
-                continue
-            if value > 0:
-                warning_days_values.append(value)
+    releases = content.get("releases") or {}
+    if releases is None:
+        releases = {}
+    if not isinstance(releases, dict):
+        raise ValueError("releases must be a mapping")
 
-    if not warning_days_values:
-        warning_days_values = [30]
+    release_includes = releases.get("includes") or []
+    if not isinstance(release_includes, list):
+        raise ValueError("releases.includes must be a list")
 
-    warning_days = max(warning_days_values)
+    normalized_release_includes = [str(item).strip() for item in release_includes if str(item).strip()]
+    for pattern in normalized_release_includes:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"Invalid regex in releases.includes: {pattern}") from exc
 
-    maintainer_map_raw = report_config.get("maintainer_map") or {}
-    maintainer_map: Dict[str, str] = {}
-    if isinstance(maintainer_map_raw, dict):
-        for key, value in maintainer_map_raw.items():
-            normalized_key = str(key).strip().lower()
-            normalized_value = str(value).strip().lstrip("@")
-            if normalized_key and normalized_value:
-                maintainer_map[normalized_key] = normalized_value
+    release_excludes = releases.get("excludes") or []
+    if not isinstance(release_excludes, list):
+        raise ValueError("releases.excludes must be a list")
+
+    normalized_release_excludes = [str(item).strip() for item in release_excludes if str(item).strip()]
 
     logger.info(
-        "Loaded skip-expiry config: %d maintainers, expiry.default_days=%d, warning_days=%d, maintainer_map=%d",
+        "Loaded skip-expiry config: %d maintainers, expiry.default_days=%d, includes=%d, excludes=%d",
         len(normalized_maintainers),
         expiry_days,
-        warning_days,
-        len(maintainer_map),
+        len(normalized_release_includes),
+        len(normalized_release_excludes),
     )
     return SkipExpiryConfig(
         maintainers=normalized_maintainers,
         expiry_days=expiry_days,
-        warning_days=warning_days,
-        maintainer_map=maintainer_map,
+        release_includes=normalized_release_includes,
+        release_excludes=normalized_release_excludes,
     )
