@@ -233,3 +233,13 @@ arp/test_unknown_mac.py::TestUnknownMac::test_unknown_mac:
     reason: "xfail for IPv6-only topologies, with issue failure to handle max number"
     conditions:
       - "https://github.com/opcoder023/issue-test/issues/6 and '-v6-' in topo_name"
+
+arp/test_stress_arp_t2.py::test_ipv4_arp:
+  xfail:
+    reason: "skip for IPv6-only topologies or test case has issue on the t0-isolated-d256u256s2 topo"
+    conditions_logical_operator: or
+    conditions:
+      - "'-v6-' in topo_name"
+      - "https://github.com/opcoder023/issue-test/issues/8 and 't0-isolated-d256u256s2' in topo_name"
+
+
