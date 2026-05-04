@@ -28,7 +28,7 @@ class FakeGuardApiClient:
 
 
 def test_resolve_release_branches_applies_regex_and_exact_excludes() -> None:
-    all_branches = ["master", "202205", "202305", "202405", "202411", "feature/test"]
+    all_branches = ["main", "202205", "202305", "202405", "202411", "feature/test"]
 
     selected = resolve_release_branches(
         all_branches=all_branches,
@@ -39,8 +39,8 @@ def test_resolve_release_branches_applies_regex_and_exact_excludes() -> None:
     assert selected == ["202405", "202411"]
 
 
-def test_build_branches_to_scan_always_includes_master_once() -> None:
-    assert build_branches_to_scan(["master", "202411", "202405", "202405"]) == ["master", "202405", "202411"]
+def test_build_branches_to_scan_always_includes_main_once() -> None:
+    assert build_branches_to_scan(["main", "202411", "202405", "202405"]) == ["main", "202405", "202411"]
 
 
 def test_load_closed_issue_from_event_returns_issue_ref(tmp_path: Path) -> None:
@@ -93,7 +93,7 @@ def test_run_issue_close_guard_reopens_tracked_closed_issue(tmp_path: Path, monk
         lambda **kwargs: {tracked_issue, cross_repo_issue},
     )
 
-    api = FakeGuardApiClient(branches=["master", "202305", "202405", "feature/abc"])
+    api = FakeGuardApiClient(branches=["main", "202305", "202405", "feature/abc"])
     config = SkipExpiryConfig(
         maintainers=["maintainer"],
         expiry_days=90,

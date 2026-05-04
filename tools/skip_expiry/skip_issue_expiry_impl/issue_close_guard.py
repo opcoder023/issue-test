@@ -48,9 +48,9 @@ def resolve_release_branches(
 
 
 def build_branches_to_scan(release_branches: Iterable[str]) -> List[str]:
-    ordered: List[str] = ["master"]
+    ordered: List[str] = ["main"]
     for branch in sorted(set(release_branches)):
-        if branch != "master":
+        if branch != "main":
             ordered.append(branch)
     return ordered
 
