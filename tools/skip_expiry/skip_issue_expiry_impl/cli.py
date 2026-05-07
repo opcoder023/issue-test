@@ -101,7 +101,7 @@ def _parse_github_timestamp(raw_ts: object) -> Optional[datetime]:
 
 def _truncate_timestamp_to_date(timestamp_str: Optional[str]) -> Optional[str]:
     """Convert ISO-8601 timestamp to YYYY-MM-DD format for GraphQL Date scalar.
-    
+
     GitHub's GraphQL Date scalar only accepts YYYY-MM-DD format.
     Strips time portion and timezone from ISO-8601 timestamps.
     """
@@ -119,10 +119,12 @@ def _compute_days_delta(target: Optional[datetime], now: datetime) -> Optional[i
 
 
 def _expiry_bucket(days_to_expiry: Optional[int], current_status: str) -> str:
+    if current_status == "expired":
+        return "expired"
     if days_to_expiry is None:
         return "unknown"
     if days_to_expiry < 0:
-        return "0-1d"
+        return "expired"
     if days_to_expiry <= 1:
         return "0-1d"
     if days_to_expiry <= 7:
@@ -209,7 +211,8 @@ def _build_report_row(
     if latest_activity is not None:
         days_since_last_activity = max(0, int((now - latest_activity).total_seconds() // 86400))
 
-    no_issue_linked = bool(entry.get("no_issue_linked"))
+    no_issue_linked = bool(entry.get("no_issue_linked") or issue_ref is None)
+    is_permanent_skip = bool(entry.get("is_permanent_skip") or no_issue_linked)
     needs_cleanup = bool(issue_ref is not None and issue_state == "closed")
     needs_attention = bool(issue_state == "open" and current_status == "expired")
     approaching_expiry = bool(days_to_expiry is not None and 0 <= days_to_expiry <= warning_days)
@@ -239,7 +242,7 @@ def _build_report_row(
             "issue_author": issue_author,
             "condition_file": _normalize_condition_file(str(entry.get("condition_file") or ""), repo_root),
             "test_category": test_category,
-            "is_permanent_skip": bool(entry.get("is_permanent_skip")),
+            "is_permanent_skip": is_permanent_skip,
             "last_updated_at": _truncate_timestamp_to_date(issue_updated_at_raw),
             "last_comment_at": _truncate_timestamp_to_date(last_comment_ts.isoformat() if last_comment_ts else None),
             "days_since_last_activity": days_since_last_activity,
