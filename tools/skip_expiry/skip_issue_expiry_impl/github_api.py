@@ -19,6 +19,7 @@ class GitHubApiClient:
         api_base_url: str = "https://api.github.com",
         max_retries: int = 3,
         backoff_factor: float = 1.0,
+        max_backoff_seconds: float = 60.0,
     ) -> None:
         if not token:
             raise ValueError("GITHUB_TOKEN is required")
@@ -26,6 +27,7 @@ class GitHubApiClient:
         self.api_base_url = api_base_url.rstrip("/")
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
+        self.max_backoff_seconds = max_backoff_seconds
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -35,6 +37,21 @@ class GitHubApiClient:
                 "User-Agent": "sonic-mgmt-skip-expiry-workflow",
             }
         )
+
+    def _parse_retry_after(self, retry_after_header: str, default_backoff: float) -> float:
+        """Parse Retry-After header, tolerating both seconds (int) and HTTP-date formats."""
+        try:
+            return float(retry_after_header)
+        except ValueError:
+            logger.warning(
+                "Retry-After header not numeric (%r, likely HTTP-date); using default backoff %.1fs",
+                retry_after_header, default_backoff,
+            )
+            return default_backoff
+
+    def _cap_backoff(self, backoff_secs: float) -> float:
+        """Cap backoff to prevent unbounded exponential growth."""
+        return min(backoff_secs, self.max_backoff_seconds)
 
     def _request(
         self,
@@ -74,7 +91,10 @@ class GitHubApiClient:
                 return response
 
             if response.status_code == 429:
-                retry_after = float(response.headers.get("Retry-After", self.backoff_factor * (2 ** attempt)))
+                default_backoff = self._cap_backoff(self.backoff_factor * (2 ** attempt))
+                retry_after = self._parse_retry_after(
+                    response.headers.get("Retry-After", ""), default_backoff
+                )
                 if attempt < self.max_retries:
                     logger.warning(
                         "GitHub API %s %s rate limited (429), retrying after %.1fs",
@@ -86,8 +106,23 @@ class GitHubApiClient:
                 response.raise_for_status()
                 return response
 
+            # Check for 403 Forbidden with rate-limit exhaustion
+            if response.status_code == 403:
+                remaining = response.headers.get("X-RateLimit-Remaining")
+                if remaining == "0" and attempt < self.max_retries:
+                    reset_time = response.headers.get("X-RateLimit-Reset")
+                    sleep_secs = float(reset_time) - time.time() if reset_time else self._cap_backoff(
+                        self.backoff_factor * (2 ** attempt)
+                    )
+                    logger.warning(
+                        "GitHub API %s %s rate limited (403, limit exhausted), retrying after %.1fs",
+                        method, path, sleep_secs,
+                    )
+                    time.sleep(sleep_secs)
+                    continue
+
             if response.status_code >= 500 and attempt < self.max_retries:
-                sleep_secs = self.backoff_factor * (2 ** attempt)
+                sleep_secs = self._cap_backoff(self.backoff_factor * (2 ** attempt))
                 logger.warning(
                     "GitHub API %s %s failed with %d (attempt %d/%d), retrying in %.1fs",
                     method, path, response.status_code, attempt + 1, self.max_retries + 1, sleep_secs,
