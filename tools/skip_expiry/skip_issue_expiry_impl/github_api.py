@@ -44,6 +44,7 @@ class GitHubApiClient:
         params: Optional[Dict[str, object]] = None,
         json_body: Optional[Dict[str, object]] = None,
         accept: Optional[str] = None,
+        success_statuses: Optional[List[int]] = None,
     ) -> requests.Response:
         url = f"{self.api_base_url}{path}"
         headers = None
@@ -68,6 +69,9 @@ class GitHubApiClient:
                 continue
 
             last_exc = None
+
+            if success_statuses and response.status_code in success_statuses:
+                return response
 
             if response.status_code == 429:
                 retry_after = float(response.headers.get("Retry-After", self.backoff_factor * (2 ** attempt)))
@@ -149,18 +153,11 @@ class GitHubApiClient:
     def remove_label(self, issue: IssueRef, label: str) -> None:
         logger.info("Removing label %s from %s", label, issue.html_url)
         encoded_label = quote(label, safe="")
-        response = self.session.delete(
-            f"{self.api_base_url}{issue.api_path}/labels/{encoded_label}",
-            timeout=30,
+        self._request(
+            "DELETE",
+            f"{issue.api_path}/labels/{encoded_label}",
+            success_statuses=[404],
         )
-        if response.status_code in (200, 204, 404):
-            return
-        if response.status_code >= 400:
-            logger.error(
-                "Failed to remove label %s from %s: %d %s",
-                label, issue.html_url,
-                response.status_code, response.text)
-            response.raise_for_status()
 
     def create_comment(self, issue: IssueRef, body: str) -> None:
         logger.info("Creating comment on %s", issue.html_url)
