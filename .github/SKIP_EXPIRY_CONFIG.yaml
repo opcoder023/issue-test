@@ -12,4 +12,4 @@ releases:
     - "202012"
 
 expiry:
-  default_days: 1
+  default_days: 10
