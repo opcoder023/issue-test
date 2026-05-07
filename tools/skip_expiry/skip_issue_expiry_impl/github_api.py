@@ -19,7 +19,6 @@ class GitHubApiClient:
         api_base_url: str = "https://api.github.com",
         max_retries: int = 3,
         backoff_factor: float = 1.0,
-        max_backoff_seconds: float = 30.0,
     ) -> None:
         if not token:
             raise ValueError("GITHUB_TOKEN is required")
@@ -27,7 +26,6 @@ class GitHubApiClient:
         self.api_base_url = api_base_url.rstrip("/")
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
-        self.max_backoff_seconds = max_backoff_seconds
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -46,92 +44,64 @@ class GitHubApiClient:
         params: Optional[Dict[str, object]] = None,
         json_body: Optional[Dict[str, object]] = None,
         accept: Optional[str] = None,
-        success_statuses: Optional[set] = None,
     ) -> requests.Response:
         url = f"{self.api_base_url}{path}"
         headers = None
         if accept:
             headers = {"Accept": accept}
 
-        allowed_statuses = success_statuses or set()
-
+        last_exc: Optional[Exception] = None
         for attempt in range(self.max_retries + 1):
             try:
-                response = self.session.request(method, url, params=params, json=json_body, headers=headers, timeout=30)
-            except requests.RequestException as exc:
-                if attempt >= self.max_retries:
-                    logger.error("GitHub API %s %s failed after retries: %s", method, path, exc)
-                    raise
-
-                delay = self._compute_backoff_seconds(attempt)
-                logger.warning(
-                    "GitHub API %s %s request exception (%s); retrying in %.1fs (attempt %d/%d)",
-                    method,
-                    path,
-                    type(exc).__name__,
-                    delay,
-                    attempt + 1,
-                    self.max_retries,
+                response = self.session.request(
+                    method, url, params=params, json=json_body, headers=headers, timeout=30
                 )
-                time.sleep(delay)
+            except requests.RequestException as exc:
+                last_exc = exc
+                if attempt < self.max_retries:
+                    sleep_secs = self.backoff_factor * (2 ** attempt)
+                    logger.warning(
+                        "GitHub API %s %s raised %s (attempt %d/%d), retrying in %.1fs",
+                        method, path, exc, attempt + 1, self.max_retries + 1, sleep_secs,
+                    )
+                    time.sleep(sleep_secs)
                 continue
 
-            if response.status_code < 400 or response.status_code in allowed_statuses:
+            last_exc = None
+
+            if response.status_code == 429:
+                retry_after = float(response.headers.get("Retry-After", self.backoff_factor * (2 ** attempt)))
+                if attempt < self.max_retries:
+                    logger.warning(
+                        "GitHub API %s %s rate limited (429), retrying after %.1fs",
+                        method, path, retry_after,
+                    )
+                    time.sleep(retry_after)
+                    continue
+                logger.error("GitHub API %s %s failed with 429 after %d retries", method, path, self.max_retries)
+                response.raise_for_status()
                 return response
 
-            if self._should_retry_response(response) and attempt < self.max_retries:
-                delay = self._resolve_retry_delay(response, attempt)
+            if response.status_code >= 500 and attempt < self.max_retries:
+                sleep_secs = self.backoff_factor * (2 ** attempt)
                 logger.warning(
-                    "GitHub API %s %s returned %d; retrying in %.1fs (attempt %d/%d)",
-                    method,
-                    path,
-                    response.status_code,
-                    delay,
-                    attempt + 1,
-                    self.max_retries,
+                    "GitHub API %s %s failed with %d (attempt %d/%d), retrying in %.1fs",
+                    method, path, response.status_code, attempt + 1, self.max_retries + 1, sleep_secs,
                 )
-                time.sleep(delay)
+                time.sleep(sleep_secs)
                 continue
 
-            logger.error("GitHub API %s %s failed with %d: %s", method, path, response.status_code, response.text)
-            response.raise_for_status()
+            if response.status_code >= 400:
+                logger.error(
+                    "GitHub API %s %s failed with %d: %s", method, path, response.status_code, response.text
+                )
+                response.raise_for_status()
 
-        raise RuntimeError("Unexpected retry loop termination")
+            return response
 
-    def _resolve_retry_delay(self, response: requests.Response, attempt: int) -> float:
-        retry_after = self._parse_retry_after_seconds(response)
-        if retry_after is not None:
-            return retry_after
-        return self._compute_backoff_seconds(attempt)
-
-    def _compute_backoff_seconds(self, attempt: int) -> float:
-        delay = self.backoff_factor * (2**attempt)
-        return min(delay, self.max_backoff_seconds)
-
-    @staticmethod
-    def _parse_retry_after_seconds(response: requests.Response) -> Optional[float]:
-        retry_after = response.headers.get("Retry-After")
-        if not retry_after:
-            return None
-        try:
-            parsed = float(retry_after)
-        except ValueError:
-            return None
-
-        return max(parsed, 0.0)
-
-    @staticmethod
-    def _should_retry_response(response: requests.Response) -> bool:
-        status_code = response.status_code
-        if status_code == 429 or status_code >= 500:
-            return True
-
-        if status_code == 403:
-            rate_remaining = (response.headers.get("X-RateLimit-Remaining") or "").strip()
-            if rate_remaining == "0" or response.headers.get("Retry-After"):
-                return True
-
-        return False
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(f"GitHub API {method} {path} failed after {self.max_retries} retries")
 
     def _paginate(
         self,
@@ -172,15 +142,6 @@ class GitHubApiClient:
         comments_path = f"{issue.api_path}/comments"
         return self._paginate(comments_path)
 
-    def list_repo_branches(self, owner: str, repo: str) -> List[str]:
-        branches = self._paginate(f"/repos/{owner}/{repo}/branches")
-        names: List[str] = []
-        for branch in branches:
-            branch_name = branch.get("name")
-            if isinstance(branch_name, str) and branch_name.strip():
-                names.append(branch_name.strip())
-        return names
-
     def add_label(self, issue: IssueRef, label: str) -> None:
         logger.info("Adding label %s to %s", label, issue.html_url)
         self._request("POST", f"{issue.api_path}/labels", json_body={"labels": [label]})
@@ -188,16 +149,19 @@ class GitHubApiClient:
     def remove_label(self, issue: IssueRef, label: str) -> None:
         logger.info("Removing label %s from %s", label, issue.html_url)
         encoded_label = quote(label, safe="")
-        self._request(
-            "DELETE",
-            f"{issue.api_path}/labels/{encoded_label}",
-            success_statuses={404},
+        response = self.session.delete(
+            f"{self.api_base_url}{issue.api_path}/labels/{encoded_label}",
+            timeout=30,
         )
+        if response.status_code in (200, 204, 404):
+            return
+        if response.status_code >= 400:
+            logger.error(
+                "Failed to remove label %s from %s: %d %s",
+                label, issue.html_url,
+                response.status_code, response.text)
+            response.raise_for_status()
 
     def create_comment(self, issue: IssueRef, body: str) -> None:
         logger.info("Creating comment on %s", issue.html_url)
         self._request("POST", f"{issue.api_path}/comments", json_body={"body": body})
-
-    def reopen_issue(self, issue: IssueRef) -> None:
-        logger.info("Reopening issue %s", issue.html_url)
-        self._request("PATCH", issue.api_path, json_body={"state": "open"})
