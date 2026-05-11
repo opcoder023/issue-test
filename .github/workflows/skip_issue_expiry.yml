@@ -18,6 +18,8 @@ permissions:
 jobs:
   skip-issue-expiry:
     runs-on: ubuntu-latest
+    env:
+      REPORTING_ENABLED: ${{ github.repository == 'opcoder023/issue-test' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -37,6 +39,7 @@ jobs:
 
       - name: Get GitHub App token
         id: app-token
+        if: ${{ env.REPORTING_ENABLED == 'true' }}
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.GH_APP_ID }}
@@ -45,10 +48,10 @@ jobs:
       - name: Run skip issue expiry workflow
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          GITHUB_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
-          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+          GITHUB_APP_TOKEN: ${{ env.REPORTING_ENABLED == 'true' && steps.app-token.outputs.token || '' }}
+          GH_APP_TOKEN: ${{ env.REPORTING_ENABLED == 'true' && steps.app-token.outputs.token || '' }}
+          GITHUB_APP_SLUG: ${{ env.REPORTING_ENABLED == 'true' && steps.app-token.outputs.app-slug || '' }}
+          PROJECT_ID: ${{ env.REPORTING_ENABLED == 'true' && secrets.PROJECT_ID || '' }}
           SKIP_EXPIRY_BOT_LOGIN: github-actions[bot]
           SKIP_EXPIRY_REPORT_DRY_RUN: ${{ github.event.inputs.no_op == 'true' && 'true' || 'false' }}
           NO_OP_FLAG: ${{ github.event.inputs.no_op == 'true' && '--no-op' || '' }}
