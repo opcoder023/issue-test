@@ -99,19 +99,6 @@ def _parse_github_timestamp(raw_ts: object) -> Optional[datetime]:
         return None
 
 
-def _truncate_timestamp_to_date(timestamp_str: Optional[str]) -> Optional[str]:
-    """Convert ISO-8601 timestamp to YYYY-MM-DD format for GraphQL Date scalar.
-
-    GitHub's GraphQL Date scalar only accepts YYYY-MM-DD format.
-    Strips time portion and timezone from ISO-8601 timestamps.
-    """
-    if not timestamp_str or not isinstance(timestamp_str, str):
-        return None
-    # Extract date portion (everything before 'T')
-    date_part = timestamp_str.split("T")[0]
-    return date_part if date_part else None
-
-
 def _compute_days_delta(target: Optional[datetime], now: datetime) -> Optional[int]:
     if target is None:
         return None
@@ -123,17 +110,15 @@ def _expiry_bucket(days_to_expiry: Optional[int], current_status: str) -> str:
         return "expired"
     if days_to_expiry is None:
         return "unknown"
-    if days_to_expiry < 0:
-        return "expired"
     if days_to_expiry <= 1:
-        return "≤1d"
+        return "0-1d"
     if days_to_expiry <= 7:
-        return "2-7d"
+        return "1-7d"
     if days_to_expiry <= 15:
-        return "8-15d"
+        return "7-15d"
     if days_to_expiry <= 30:
-        return "16-30d"
-    return ">30d"
+        return "15-30d"
+    return ">30"
 
 
 def _normalize_condition_file(condition_file: str, repo_root: Path) -> str:
@@ -163,13 +148,13 @@ def _build_report_row(
     issue_state = str(issue_payload.get("state") or "").lower() if issue_payload else ""
     current_status = "unknown"
     if bool(entry.get("no_issue_linked")):
-        current_status = "no-issue-linked"
+        current_status = "no_issue_linked"
     elif issue_state == "closed":
-        current_status = "skip-closed"
+        current_status = "skip_closed"
     elif evaluation and evaluation.expired_now:
         current_status = "expired"
     elif issue_state == "open":
-        current_status = "not-expired"
+        current_status = "not expired"
 
     issue_created_at_raw = issue_payload.get("created_at") if issue_payload else None
     issue_closed_at_raw = issue_payload.get("closed_at") if issue_payload else None
@@ -211,8 +196,7 @@ def _build_report_row(
     if latest_activity is not None:
         days_since_last_activity = max(0, int((now - latest_activity).total_seconds() // 86400))
 
-    no_issue_linked = bool(entry.get("no_issue_linked") or issue_ref is None)
-    is_permanent_skip = bool(entry.get("is_permanent_skip") or no_issue_linked)
+    no_issue_linked = bool(entry.get("no_issue_linked"))
     needs_cleanup = bool(issue_ref is not None and issue_state == "closed")
     needs_attention = bool(issue_state == "open" and current_status == "expired")
     approaching_expiry = bool(days_to_expiry is not None and 0 <= days_to_expiry <= warning_days)
@@ -232,8 +216,8 @@ def _build_report_row(
             "issue_number": issue_ref.number if issue_ref else None,
             "issue_repository": repository,
             "issue_state": issue_state or None,
-            "issue_created_at": _truncate_timestamp_to_date(issue_created_at_raw),
-            "issue_closed_at": _truncate_timestamp_to_date(issue_closed_at_raw),
+            "issue_created_at": issue_created_at_raw,
+            "issue_closed_at": issue_closed_at_raw,
             "age_days": age_days,
             "days_to_expiry": days_to_expiry,
             "expiry_bucket": expiry_bucket,
@@ -242,9 +226,9 @@ def _build_report_row(
             "issue_author": issue_author,
             "condition_file": _normalize_condition_file(str(entry.get("condition_file") or ""), repo_root),
             "test_category": test_category,
-            "is_permanent_skip": is_permanent_skip,
-            "last_updated_at": _truncate_timestamp_to_date(issue_updated_at_raw),
-            "last_comment_at": _truncate_timestamp_to_date(last_comment_ts.isoformat() if last_comment_ts else None),
+            "is_permanent_skip": bool(entry.get("is_permanent_skip")),
+            "last_updated_at": issue_updated_at_raw,
+            "last_comment_at": last_comment_ts.isoformat() if last_comment_ts else None,
             "days_since_last_activity": days_since_last_activity,
             "is_cross_repo": is_cross_repo,
             "source_repo": source_repo,
@@ -337,7 +321,7 @@ def run() -> int:
     )
     if skipped_issues:
         logging.getLogger(__name__).warning(
-            "Skipping mutation for %d cross-repo issue(s) for target %s; they are still included in reporting",
+            "Skipping mutation for %d cross-repo issue(s); they are still included in reporting",
             len(skipped_issues),
             args.target_repo,
         )
@@ -352,7 +336,7 @@ def run() -> int:
         no_op=args.no_op,
     )
     with _reporting_auth_env(reporting_token):
-        reporter = create_reporter_from_env(force_dry_run=args.no_op)
+        reporter = create_reporter_from_env()
     if reporter:
         logging.getLogger(__name__).info("Project V2 reporting is enabled")
     else:
@@ -402,10 +386,12 @@ def run() -> int:
                 now=now,
             )
 
-            reporter.upsert_project_item(row)
+            with _reporting_auth_env(reporting_token):
+                reporter.upsert_project_item(row)
 
     if reporter:
-        summary = reporter.summary()
+        with _reporting_auth_env(reporting_token):
+            summary = reporter.summary()
         logging.getLogger(__name__).info(
             "Project V2 reporting summary: created=%d updated=%d skipped=%d",
             summary["created"],

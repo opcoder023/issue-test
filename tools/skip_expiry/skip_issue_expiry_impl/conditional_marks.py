@@ -97,23 +97,13 @@ def _build_report_entries_for_test(test_id: str, entry: Dict[str, Any], conditio
     entries: List[Dict[str, Any]] = []
     test_category = _derive_test_category(test_id)
 
-    mark_configs: List[tuple[str, Dict[str, Any]]] = []
     for mark_type in ("skip", "xfail"):
         mark_config = entry.get(mark_type)
-        if isinstance(mark_config, dict):
-            mark_configs.append((mark_type, mark_config))
-
-    # Backward-compatible support for direct mark config shape:
-    # test_id:
-    #   reason: ...
-    #   conditions: [...]
-    if not mark_configs and any(k in entry for k in ("conditions", "reason", "conditions_logical_operator")):
-        mark_configs.append(("skip", entry))
-
-    for mark_type, mark_config in mark_configs:
+        if not isinstance(mark_config, dict):
+            continue
 
         issue_refs = _collect_mark_issue_refs(mark_config)
-        is_permanent_skip = not issue_refs
+        is_permanent_skip = mark_type == "skip" and not issue_refs
         if not issue_refs:
             entries.append(
                 {
@@ -261,27 +251,12 @@ def collect_report_entries_from_conditional_marks(conditional_mark_dir: Path) ->
 
         relative_file = str(mark_file)
         before = len(entries)
-        non_dict_entry_count = 0
-        no_mark_entry_count = 0
         for test_id, entry in payload.items():
             if not isinstance(test_id, str) or not isinstance(entry, dict):
-                non_dict_entry_count += 1
                 continue
-
-            rows = _build_report_entries_for_test(test_id, entry, relative_file)
-            if not rows:
-                no_mark_entry_count += 1
-            entries.extend(rows)
+            entries.extend(_build_report_entries_for_test(test_id, entry, relative_file))
 
         logger.info("Parsed %s and extracted %d report entry row(s)", mark_file, len(entries) - before)
-        if len(entries) == before and payload:
-            logger.warning(
-                "No report rows extracted from %s: payload_keys=%d non_dict_entries=%d entries_without_skip_or_xfail=%d",
-                mark_file,
-                len(payload),
-                non_dict_entry_count,
-                no_mark_entry_count,
-            )
 
     logger.info("Collected %d report entry row(s) from conditional marks", len(entries))
     return entries
