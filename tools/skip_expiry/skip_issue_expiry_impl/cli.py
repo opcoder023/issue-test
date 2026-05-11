@@ -126,14 +126,14 @@ def _expiry_bucket(days_to_expiry: Optional[int], current_status: str) -> str:
     if days_to_expiry < 0:
         return "expired"
     if days_to_expiry <= 1:
-        return "0-1d"
+        return "≤1d"
     if days_to_expiry <= 7:
-        return "1-7d"
+        return "2-7d"
     if days_to_expiry <= 15:
-        return "7-15d"
+        return "8-15d"
     if days_to_expiry <= 30:
-        return "15-30d"
-    return ">30"
+        return "16-30d"
+    return ">30d"
 
 
 def _normalize_condition_file(condition_file: str, repo_root: Path) -> str:
@@ -163,13 +163,13 @@ def _build_report_row(
     issue_state = str(issue_payload.get("state") or "").lower() if issue_payload else ""
     current_status = "unknown"
     if bool(entry.get("no_issue_linked")):
-        current_status = "no_issue_linked"
+        current_status = "no-issue-linked"
     elif issue_state == "closed":
-        current_status = "skip_closed"
+        current_status = "skip-closed"
     elif evaluation and evaluation.expired_now:
         current_status = "expired"
     elif issue_state == "open":
-        current_status = "not expired"
+        current_status = "not-expired"
 
     issue_created_at_raw = issue_payload.get("created_at") if issue_payload else None
     issue_closed_at_raw = issue_payload.get("closed_at") if issue_payload else None

@@ -254,7 +254,7 @@ def collect_report_entries_from_conditional_marks(conditional_mark_dir: Path) ->
         for test_id, entry in payload.items():
             if not isinstance(test_id, str) or not isinstance(entry, dict):
                 continue
-            entries.extend(_build_report_entries_for_test(test_id, entry, relative_file))
+                entries.extend(_build_report_entries_for_test(test_id, entry, str(mark_file.resolve())))
 
         logger.info("Parsed %s and extracted %d report entry row(s)", mark_file, len(entries) - before)
 
